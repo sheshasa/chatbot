@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal Chatbot</title>
+  <style>
+    /* Basic CSS styling */
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f9f9f9;
+      margin: 0;
+      padding: 0;
+    }
+    #chat-container, #history-container {
+      width: 400px;
+      margin: 20px auto;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background-color: #fff;
+      padding: 10px;
+    }
+    #chat-container {
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      display: flex;
+      flex-direction: column;
+    }
+    #chat-box {
+      height: 300px;
+      overflow-y: auto;
+      border-bottom: 1px solid #ddd;
+      padding: 10px;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border-radius: 5px;
+      max-width: 80%;
+      word-wrap: break-word;
+    }
+    .message.user {
+      background-color: #e0ffe0;
+      align-self: flex-end;
+      text-align: right;
+    }
+    .message.bot {
+      background-color: #e0e0ff;
+      align-self: flex-start;
+      text-align: left;
+    }
+    #input-area {
+      display: flex;
+      padding: 10px;
+    }
+    #user-input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+    }
+    #submit-btn, #toggle-history-btn {
+      margin-left: 10px;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 3px;
+      background-color: #007BFF;
+      color: #fff;
+      cursor: pointer;
+    }
+    #submit-btn:hover, #toggle-history-btn:hover {
+      background-color: #0056b3;
+    }
+    #history-container {
+      display: none;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 10px;
+    }
+    .history-item {
+      border-bottom: 1px solid #ddd;
+      padding: 5px;
+      font-size: 0.9em;
+    }
+    /* Style for thinking indicator */
+    .thinking {
+      font-style: italic;
+      color: #888;
+    }
+    /* Debug panel for developers */
+    #debug-panel {
+      width: 400px;
+      margin: 10px auto;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background-color: #f5f5f5;
+      display: none;
+    }
+    .match-info {
+      margin-bottom: 5px;
+      font-size: 0.8em;
+      padding: 3px;
+      background-color: #fff;
+    }
+    .match-info.selected {
+      border-left: 3px solid green;
+    }
+  </style>
+</head>
+<body>
+  <div id="chat-container">
+    <div id="chat-box"></div>
+    <div id="input-area">
+      <input id="user-input" type="text" placeholder="Ask me a question...">
+      <button id="submit-btn">Send</button>
+    </div>
+  </div>
+  
+  <!-- Toggle History Button -->
+  <div style="width: 400px; margin: 0 auto;">
+    <button id="toggle-history-btn">Toggle History</button>
+    <button id="toggle-debug-btn" style="margin-left: 10px; background-color: #6c757d;">Debug Mode</button>
+  </div>
+  
+  <!-- History container to display last 100 Q&A interactions -->
+  <div id="history-container"></div>
+  
+  <!-- Debug panel for developers -->
+  <div id="debug-panel">
+    <h4>Match Details:</h4>
+    <div id="match-details"></div>
+  </div>
+
+  <script>
+    /**
+     * Returns a formatted date representing the current date plus 10 days.
+     */
+    function getFutureDate() {
+      let future = new Date();
+      future.setDate(future.getDate() + 10);
+      const options = { year: 'numeric', month: 'short', day: 'numeric' };
+      return future.toLocaleDateString(undefined, options);
+    }
+
+    /**
+     * Global Q&A pairs array.
+     * Each pair may include a custom "threshold" property (default is 0.5)
+     * and a "dynamic" flag for answers computed on the fly.
+     */
+    let qaPairs = [
+      // === WORK AUTHORIZATION AND LEGAL QUESTIONS === 
+      // Adding specific questions about legal authorization to work in the US with high thresholds
+      { question: "Are you legally authorized to work in the United States?", answer: "Yes", threshold: 0.65 },
+      { question: "Do you have legal authorization to work in the US?", answer: "Yes", threshold: 0.65 },
+      { question: "Are you eligible to work in the United States?", answer: "Yes", threshold: 0.65 },
+      { question: "Do you have work authorization in the US?", answer: "Yes", threshold: 0.65 },
+      
+      // --- First set of existing Q&A pairs ---
+      { question: "Do you now, or will you in the future, require sponsorship for employment visa status to work legally for our Company in the United States?*", answer: "NO" },
+      { question: "Do you currently hold work authorization that is not employer-dependent?", answer: "Yes" },
+      { question: "Are you willing to relocate for this position?", answer: "Yes" },
+      { question: "If hired, when can you start?", dynamic: true, getAnswer: getFutureDate },
+      { question: "Are you open to hybrid/remote work arrangements?", answer: "Yes" },
+      { question: "What is your current visa status?", answer: "F1" },
+      { question: "What is the expiration date of your current work authorization?", answer: "Feb 2027" },
+      { question: "Would you require STEM OPT extension sponsorship in the future?", answer: "NO" },
+      { question: "Are you eligible for employment under CPT/OPT?", answer: "Yes" },
+      { question: "Are you currently employed? If yes, are you under a non-compete agreement?", answer: "Yes" },
+      { question: "Have you ever been terminated from a previous role?", answer: "No" },
+      { question: "What is your desired salary range?", answer: "100000" },
+      { question: "Are you willing to undergo a background check/drug test?", answer: "yes" },
+      { question: "Do you have any relatives currently employed at [company]?", answer: "No" },
+      { question: "Are you comfortable working in a [specific time zone] or travel up to X%?", answer: "yes" },
+      { question: "Were you terminated or asked to resign from any previous role?", answer: "No" },
+      { question: "May we contact your current employer?", answer: "Yes" },
+      { question: "What country are you based in or reside in which country?", answer: "United States" },
+      { question: "Country code?", answer: "+1" },
+      { question: "This role requires two days per office. Do you live or plan to relocate to the location?", answer: "yes" },
+      { question: "Have you worked before in this company?", answer: "No" },
+      { question: "Do you live within 100 miles radius of the following location?", answer: "yes" },
+      { question: "E signature?", answer: "Shesha sai Y" },
+      { question: "What date would you be available to onboard?", dynamic: true, getAnswer: getFutureDate },
+
+      // --- Second set of existing Q&A pairs ---
+      { question: "Have you worked at company, or any of its subsidiaries before? If yes, please answer the following question.*", answer: "No" },
+      { question: "City?", answer: "Memphis" },
+      { question: "Is your latest citizenship or permanent residency status from any of the following countries: Cuba, North Korea, Iran, or Syria?", answer: "NO" },
+      { question: "If you live in one of these states, would you consider relocation?", answer: "Yes" },
+      { question: "What is your State or Province?", answer: "TN" },
+      { question: "What is your postal code?", answer: "38111" },
+      { question: "What is your gender?", answer: "Male" },
+      { question: "What is your race/ethnicity?", answer: "Asian" },
+      { question: "Do you have (or have a history/record of having) a disability?", answer: "No" },
+      { question: "Are you a protected veteran?", answer: "No" },
+      { question: "are you latino or hispanic?", answer: "NO" },
+      { question: "How would you describe your sexual orientation?", answer: "Heterosexual" },
+      { question: "Do you identify as transgender?", answer: "No" },
+      { question: "Do you hold a US Security Clearance?*", answer: "NO" },
+      { question: "What percentage of time are you willing to travel?*", answer: "up to 100%" },
+      { question: "Within the last three (3) years have you been subject to any disciplinary hearing(s) or proceeding(s) related to any professional license or certification", answer: "No" },
+      { question: "Are you currently or have you within the last five (5) years served in the U.S. Armed Forces or been employed by any U.S. Federal, State, or Local Governments or any Foreign Governments?*", answer: "no" },
+      { question: "Are you subject to a non-compete or other agreement that would preclude or restrict your employment with?", answer: "No" },
+      { question: "By typing my name below I verify the resume I am providing is truthful and accurate. Employers and/or Education details will be verified after my offer acceptance.", answer: "Shesha sai Y" },
+      { question: "What is your highest education/degree level completed and awarded? Note: Your selection will be validated post offer acceptance.", answer: "Masters" },
+      { question: "If you become employed by , will you be engaged in any other business or employment other than with ?", answer: "No" },
+      { question: "What is your earliest availability date to start employment with?", dynamic: true, getAnswer: getFutureDate },
+      { question: "Veteran Status?", answer: "Not a Veteran" },
+      { question: "If you do not hold an active security clearance, are you eligible to receive one?", answer: "No" },
+
+      // --- Additional existing Q&A pairs ---
+      { question: "LinkedIn URL:", answer: "https://www.linkedin.com/in/sheshasai-yerra" },
+      { question: "Portfolio URL :", answer: "https://sheshasa.github.io/projectportfolio/" },
+      { question: "Website :", answer: "https://sheshasa.github.io/projectportfolio/" },
+      { question: "github :", answer: "https://sheshasa.github.io/projectportfolio/" },
+      { question: "Phone Device Type?", answer: "Mobile" },
+      { question: "Degree? for University of Memphis -----> Masters degrees or MS. For Bharath university ---> Bachelor's of Science or BS", answer: "Masters degrees or MS for University of Memphis; Bachelor's of Science or BS for Bharath University" },
+      { question: "Degree?", answer: "Masters(MS) ----->University of Memphis, Bachelors of science (BS)-------> Bharth university", threshold: 0.7 },
+      { question: "Are any of your relatives currently employed by or its subsidiaries?", answer: "No" },
+      { question: "Are any of your close family members currently a partner or employee of ?", answer: "No" },
+      { question: "Job title?", answer: "Data scientist" },
+      { question: "Company?", answer: "Walmart" },
+
+      // --- Experience Q&A pairs ---
+      { question: "Do you have the minimum years of experience listed?", answer: "yes" },
+      { question: "GitHub URL:", answer: "https://sheshasa.github.io/projectportfolio/" },
+      { question: "State/Region/Province:", answer: "Tennessee" },
+      { question: "city ?", answer: "Memphis" },
+      { question: "How many months/years of experience do you have in data science, data analysis, data mining or similar business functions?", answer: "4 or yes" },
+      { question: "How many months/years of experience do you have with Advanced Analytical programming (i.e., R, Python or similar tools)?", answer: "4 or yes" },
+      { question: "* How many years of experience do you have writing SQL queries?", answer: "4 or yes" },
+      { question: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", answer: "4 or yes" },
+      { question: "How many months/years of experience do you have in cloud platforms such as Azure, AWS, or Google Cloud?", answer: "4 or yes" },
+      { question: "* How many years of experience do you have in demand planning, labor planning, workforce planning, labor forecasting, or similar?", answer: "4 or yes" },
+      
+      // --- Location radius Q&A pair ---
+      { question: "Do you live within a 60 miles radius of the following locations: Brooklyn, NY, San Francisco, CA, Mexico City, MX, Guadalajara, MX, or Dublin, IE?*", answer: "Yes" },
+      
+      // --- Essential functions Q&A pair ---
+      { question: "Are you able to perform the essential functions of the job for which you are applying, either with or without reasonable accommodation?", answer: "Yes" },
+      
+      // --- Legal right verification Q&A pair ---
+      { question: "Can you, upon employment, submit verification of your legal right to work in the countries to which you have applied?", answer: "Yes" },
+      
+      // --- 70% matching threshold Q&A pairs ---
+      { question: "Have you previously been employed by ?", answer: "No", threshold: 0.7 },
+      { question: "This is a hybrid role. Are you able to commute and work in office on Monday, Tuesdays, Wednesdays and Thursdays?", answer: "Yes", threshold: 0.7 },
+      
+      // --- Additional Q&A pairs ---
+      { question: "Are you legally authorized to work in the country where this position is located? Note: If hired, a right to work check such as US Form I-9 must be completed.", answer: "Yes" },
+      { question: "State?", answer: "TN" },
+      { question: "Zip Code?", answer: "38111" },
+      { question: "post Code?", answer: "38111" },
+      { question: "Country?", answer: "United states" },
+      { question: "Current Employer?", answer: "Walmart" },
+      { question: "Current Title?", answer: "Data scientist" },
+      { question: "Were you referred by a current employee?", answer: "No" },
+      { question: "Have you ever worked at Company or any of its current or former subsidiaries as an employee, agent, or temporary worker?", answer: "No" },
+      
+      // --- New York Life relationship Q&A pair ---
+      { question: "Are you related to an employee of New York Life, its subsidiaries or affiliates, or to a member of the New York Life Board of Directors? (Please note, relatives of current members of the Executive Management Committee are not eligible for employment at the Company)", answer: "No", threshold: 0.7 },
+
+      // --- Latest additions ---
+      { question: "Ethnicity?", answer: "Asian or Not Hispanic or Latino" },
+      { question: "What's your earliest start date?", dynamic: true, getAnswer: getFutureDate },
+      { question: "Are you be able to work onsite in our office? (5 days in-office required)?", answer: "yes" },
+      
+      // --- Education degree in Computer Science ---
+      { question: "What is your highest education degree in Computer Science or related domains?", answer: "Masters", threshold: 0.8 }
+    ];
+
+    // Add synonyms and alternative phrasings for questions
+    const addQuestionVariants = () => {
+      // Define variants for different question categories
+      const questionVariants = {
+        // Work authorization variants
+        workAuthorization: [
+          // Original work authorization variants
+          { question: "Do you have the legal right to work in the US?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Are you permitted to work in the United States legally?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Can you legally work in the US?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Are you legally allowed to work in the United States?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Do you have legal permission to work in the US?", originalQuestion: "Do you have legal authorization to work in the US?", threshold: 0.8 },
+          { question: "Are you authorized to work in America?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Are you able to work legally in USA?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Do you have US work authorization?", originalQuestion: "Do you have work authorization in the US?", threshold: 0.8 },
+          { question: "Are you work eligible in the United States?", originalQuestion: "Are you eligible to work in the United States?", threshold: 0.8 },
+          // Additional work authorization variants
+          { question: "Do you have the right to work in the United States?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Are you authorized for employment in the US?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Is your work status legal in the United States?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Are you lawfully able to work in the USA?", originalQuestion: "Are you legally authorized to work in the United States?", threshold: 0.8 },
+          { question: "Do you possess legal work authorization in America?", originalQuestion: "Do you have legal authorization to work in the US?", threshold: 0.8 }
+        ],
+        
+        // Visa and sponsorship variants
+        visaAndSponsorship: [
+          { question: "Will you need visa sponsorship now or in the future?", originalQuestion: "Do you now, or will you in the future, require sponsorship for employment visa status to work legally for our Company in the United States?*", threshold: 0.7 },
+          { question: "Do you require visa sponsorship?", originalQuestion: "Do you now, or will you in the future, require sponsorship for employment visa status to work legally for our Company in the United States?*", threshold: 0.7 },
+          { question: "Are you looking for visa sponsorship from the employer?", originalQuestion: "Do you now, or will you in the future, require sponsorship for employment visa status to work legally for our Company in the United States?*", threshold: 0.7 },
+          { question: "Will you require employment sponsorship?", originalQuestion: "Do you now, or will you in the future, require sponsorship for employment visa status to work legally for our Company in the United States?*", threshold: 0.7 },
+          { question: "Would you need the company to sponsor your visa?", originalQuestion: "Do you now, or will you in the future, require sponsorship for employment visa status to work legally for our Company in the United States?*", threshold: 0.7 }
+        ],
+        
+        // Relocation variants
+        relocation: [
+          { question: "Are you open to relocating for this job?", originalQuestion: "Are you willing to relocate for this position?", threshold: 0.7 },
+          { question: "Would you be willing to move for this role?", originalQuestion: "Are you willing to relocate for this position?", threshold: 0.7 },
+          { question: "Can you relocate for this job opportunity?", originalQuestion: "Are you willing to relocate for this position?", threshold: 0.7 },
+          { question: "Is relocation an option for you?", originalQuestion: "Are you willing to relocate for this position?", threshold: 0.7 },
+          { question: "Are you able to relocate if the position requires it?", originalQuestion: "Are you willing to relocate for this position?", threshold: 0.7 }
+        ],
+        
+        // Start date variants
+        startDate: [
+          { question: "When would you be available to start?", originalQuestion: "If hired, when can you start?", threshold: 0.7 },
+          { question: "What is your earliest start date?", originalQuestion: "If hired, when can you start?", threshold: 0.7 },
+          { question: "How soon can you begin working?", originalQuestion: "If hired, when can you start?", threshold: 0.7 },
+          { question: "What would your availability be to start?", originalQuestion: "If hired, when can you start?", threshold: 0.7 },
+          { question: "When could you start work if offered the job?", originalQuestion: "If hired, when can you start?", threshold: 0.7 }
+        ],
+        
+        // Work arrangements variants
+        workArrangements: [
+          { question: "Are you comfortable with hybrid work?", originalQuestion: "Are you open to hybrid/remote work arrangements?", threshold: 0.7 },
+          { question: "Would you prefer remote or hybrid work?", originalQuestion: "Are you open to hybrid/remote work arrangements?", threshold: 0.7 },
+          { question: "Are you okay with working remotely?", originalQuestion: "Are you open to hybrid/remote work arrangements?", threshold: 0.7 },
+          { question: "Would a hybrid work arrangement work for you?", originalQuestion: "Are you open to hybrid/remote work arrangements?", threshold: 0.7 },
+          { question: "Can you work in a hybrid/remote setting?", originalQuestion: "Are you open to hybrid/remote work arrangements?", threshold: 0.7 }
+        ],
+        
+        // Education degree variants
+        educationDegree: [
+          { question: "What degree do you hold?", originalQuestion: "What is your highest education/degree level completed and awarded? Note: Your selection will be validated post offer acceptance.", threshold: 0.7 },
+          { question: "What's your highest academic qualification?", originalQuestion: "What is your highest education/degree level completed and awarded? Note: Your selection will be validated post offer acceptance.", threshold: 0.7 },
+          { question: "What level of education have you completed?", originalQuestion: "What is your highest education/degree level completed and awarded? Note: Your selection will be validated post offer acceptance.", threshold: 0.7 },
+          { question: "What is your educational background?", originalQuestion: "What is your highest education/degree level completed and awarded? Note: Your selection will be validated post offer acceptance.", threshold: 0.7 },
+          { question: "Have you completed any degrees? If so, what level?", originalQuestion: "What is your highest education/degree level completed and awarded? Note: Your selection will be validated post offer acceptance.", threshold: 0.7 }
+        ],
+        
+        // Computer Science degree variants
+        csDegree: [
+          { question: "What is your education in Computer Science?", originalQuestion: "What is your highest education degree in Computer Science or related domains?", threshold: 0.8 },
+          { question: "Do you have a degree in CS or related fields?", originalQuestion: "What is your highest education degree in Computer Science or related domains?", threshold: 0.8 },
+          { question: "What computer science qualifications do you have?", originalQuestion: "What is your highest education degree in Computer Science or related domains?", threshold: 0.8 },
+          { question: "What level of education do you have in computer science?", originalQuestion: "What is your highest education degree in Computer Science or related domains?", threshold: 0.8 },
+          { question: "Have you studied computer science academically?", originalQuestion: "What is your highest education degree in Computer Science or related domains?", threshold: 0.8 }
+        ],
+        
+        // Work experience variants
+        experience: [
+          { question: "How much experience do you have?", originalQuestion: "Do you have the minimum years of experience listed?", threshold: 0.7 },
+          { question: "Do you meet the experience requirements?", originalQuestion: "Do you have the minimum years of experience listed?", threshold: 0.7 },
+          { question: "How many years of experience do you possess?", originalQuestion: "Do you have the minimum years of experience listed?", threshold: 0.7 },
+          { question: "Do you have sufficient job experience?", originalQuestion: "Do you have the minimum years of experience listed?", threshold: 0.7 },
+          { question: "Have you worked in this field for the required duration?", originalQuestion: "Do you have the minimum years of experience listed?", threshold: 0.7 }
+        ],
+        
+        // Location variants
+        location: [
+          { question: "Where are you located?", originalQuestion: "What country are you based in or reside in which country?", threshold: 0.7 },
+          { question: "In which country do you currently reside?", originalQuestion: "What country are you based in or reside in which country?", threshold: 0.7 },
+          { question: "What's your current country of residence?", originalQuestion: "What country are you based in or reside in which country?", threshold: 0.7 },
+          { question: "Where do you live?", originalQuestion: "What country are you based in or reside in which country?", threshold: 0.7 },
+          { question: "Which country are you based in?", originalQuestion: "What country are you based in or reside in which country?", threshold: 0.7 }
+        ],
+        
+        // State/region variants
+        stateRegion: [
+          { question: "What state do you live in?", originalQuestion: "What is your State or Province?", threshold: 0.7 },
+          { question: "Which state are you in?", originalQuestion: "What is your State or Province?", threshold: 0.7 },
+          { question: "What's your state of residence?", originalQuestion: "What is your State or Province?", threshold: 0.7 },
+          { question: "Which US state are you from?", originalQuestion: "What is your State or Province?", threshold: 0.7 },
+          { question: "What state or province are you located in?", originalQuestion: "What is your State or Province?", threshold: 0.7 }
+        ],
+        
+        // City variants
+        city: [
+          { question: "What city do you live in?", originalQuestion: "City?", threshold: 0.7 },
+          { question: "Which city are you located in?", originalQuestion: "City?", threshold: 0.7 },
+          { question: "What's your city of residence?", originalQuestion: "City?", threshold: 0.7 },
+          { question: "In which city do you currently live?", originalQuestion: "City?", threshold: 0.7 },
+          { question: "What city do you call home?", originalQuestion: "City?", threshold: 0.7 }
+        ],
+        
+        // Data science experience variants
+        dataScience: [
+          { question: "How long have you worked in data science?", originalQuestion: "How many months/years of experience do you have in data science, data analysis, data mining or similar business functions?", threshold: 0.7 },
+          { question: "What's your data science experience?", originalQuestion: "How many months/years of experience do you have in data science, data analysis, data mining or similar business functions?", threshold: 0.7 },
+          { question: "How many years have you worked as a data scientist?", originalQuestion: "How many months/years of experience do you have in data science, data analysis, data mining or similar business functions?", threshold: 0.7 },
+          { question: "What is your experience level in data analysis?", originalQuestion: "How many months/years of experience do you have in data science, data analysis, data mining or similar business functions?", threshold: 0.7 },
+          { question: "How experienced are you with data mining?", originalQuestion: "How many months/years of experience do you have in data science, data analysis, data mining or similar business functions?", threshold: 0.7 }
+        ],
+        
+        // Python/R experience variants
+        programmingExp: [
+          { question: "How much Python experience do you have?", originalQuestion: "How many months/years of experience do you have with Advanced Analytical programming (i.e., R, Python or similar tools)?", threshold: 0.7 },
+          { question: "Are you experienced with R programming?", originalQuestion: "How many months/years of experience do you have with Advanced Analytical programming (i.e., R, Python or similar tools)?", threshold: 0.7 },
+          { question: "How long have you worked with analytical programming tools?", originalQuestion: "How many months/years of experience do you have with Advanced Analytical programming (i.e., R, Python or similar tools)?", threshold: 0.7 },
+          { question: "What's your experience level with Python and R?", originalQuestion: "How many months/years of experience do you have with Advanced Analytical programming (i.e., R, Python or similar tools)?", threshold: 0.7 },
+          { question: "How many years have you coded in analytical languages?", originalQuestion: "How many months/years of experience do you have with Advanced Analytical programming (i.e., R, Python or similar tools)?", threshold: 0.7 }
+        ],
+        
+        // SQL experience variants
+        sqlExp: [
+          { question: "How experienced are you with SQL?", originalQuestion: "* How many years of experience do you have writing SQL queries?", threshold: 0.7 },
+          { question: "How many years have you worked with SQL?", originalQuestion: "* How many years of experience do you have writing SQL queries?", threshold: 0.7 },
+          { question: "What's your SQL experience level?", originalQuestion: "* How many years of experience do you have writing SQL queries?", threshold: 0.7 },
+          { question: "How long have you been writing SQL queries?", originalQuestion: "* How many years of experience do you have writing SQL queries?", threshold: 0.7 },
+          { question: "Are you proficient in SQL? How many years?", originalQuestion: "* How many years of experience do you have writing SQL queries?", threshold: 0.7 }
+        ],
+        
+        // Machine learning experience variants
+        mlExp: [
+          { question: "How much machine learning experience do you have?", originalQuestion: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", threshold: 0.7 },
+          { question: "How long have you worked with predictive models?", originalQuestion: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", threshold: 0.7 },
+          { question: "What's your experience with ML in real-world applications?", originalQuestion: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", threshold: 0.7 },
+          { question: "What's your experience with ML in real-world applications?", originalQuestion: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", threshold: 0.7 },
+          { question: "How experienced are you with developing machine learning models?", originalQuestion: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", threshold: 0.7 },
+          { question: "How many years have you spent on ML model optimization?", originalQuestion: "* How many months/years experience do you have applying machine learning techniques, developing predictive models, and optimizing performance for real-world applications?", threshold: 0.7 }
+        ],
+        
+        // Cloud experience variants
+        cloudExp: [
+          { question: "What cloud platforms have you worked with?", originalQuestion: "How many months/years of experience do you have in cloud platforms such as Azure, AWS, or Google Cloud?", threshold: 0.7 },
+          { question: "How much experience do you have with AWS?", originalQuestion: "How many months/years of experience do you have in cloud platforms such as Azure, AWS, or Google Cloud?", threshold: 0.7 },
+          { question: "Have you worked with Azure? For how long?", originalQuestion: "How many months/years of experience do you have in cloud platforms such as Azure, AWS, or Google Cloud?", threshold: 0.7 },
+          { question: "How experienced are you with Google Cloud?", originalQuestion: "How many months/years of experience do you have in cloud platforms such as Azure, AWS, or Google Cloud?", threshold: 0.7 },
+          { question: "What's your cloud platform expertise?", originalQuestion: "How many months/years of experience do you have in cloud platforms such as Azure, AWS, or Google Cloud?", threshold: 0.7 }
+        ],
+        
+        // Demand/labor planning variants
+        planningExp: [
+          { question: "Have you worked in demand planning before?", originalQuestion: "* How many years of experience do you have in demand planning, labor planning, workforce planning, labor forecasting, or similar?", threshold: 0.7 },
+          { question: "What's your experience with workforce planning?", originalQuestion: "* How many years of experience do you have in demand planning, labor planning, workforce planning, labor forecasting, or similar?", threshold: 0.7 },
+          { question: "How long have you worked with labor forecasting?", originalQuestion: "* How many years of experience do you have in demand planning, labor planning, workforce planning, labor forecasting, or similar?", threshold: 0.7 },
+          { question: "Do you have labor planning experience?", originalQuestion: "* How many years of experience do you have in demand planning, labor planning, workforce planning, labor forecasting, or similar?", threshold: 0.7 },
+          { question: "How many years of demand planning experience do you have?", originalQuestion: "* How many years of experience do you have in demand planning, labor planning, workforce planning, labor forecasting, or similar?", threshold: 0.7 }
+        ]
+      };
+
+      // Add all variants to the main qaPairs array
+      for (const category in questionVariants) {
+        questionVariants[category].forEach(variant => {
+          // Find the original question in our qaPairs
+          const originalPair = qaPairs.find(pair => pair.question === variant.originalQuestion);
+          
+          if (originalPair) {
+            // Create a new entry with the variant and the original answer
+            const newPair = {
+              question: variant.question,
+              answer: originalPair.answer,
+              threshold: variant.threshold || originalPair.threshold || 0.5,
+              // If the original is dynamic, copy that property
+              ...(originalPair.dynamic && { dynamic: true, getAnswer: originalPair.getAnswer })
+            };
+            
+            // Add to qaPairs
+            qaPairs.push(newPair);
+          }
+        });
+      }
+    };
+
+    // Run the function to add variants
+    addQuestionVariants();
+
+    // State to keep track of chat history
+    let chatHistory = [];
+    
+    // DOM elements
+    const chatBox = document.getElementById('chat-box');
+    const userInput = document.getElementById('user-input');
+    const submitBtn = document.getElementById('submit-btn');
+    const historyContainer = document.getElementById('history-container');
+    const toggleHistoryBtn = document.getElementById('toggle-history-btn');
+    const toggleDebugBtn = document.getElementById('toggle-debug-btn');
+    const debugPanel = document.getElementById('debug-panel');
+    const matchDetails = document.getElementById('match-details');
+    
+    // Initial bot greeting
+    addMessage("Hi! I'm your personal assistant. How can I help you today?", 'bot');
+    
+    // Event listeners
+    submitBtn.addEventListener('click', handleUserInput);
+    userInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        handleUserInput();
+      }
+    });
+    
+    toggleHistoryBtn.addEventListener('click', () => {
+      historyContainer.style.display = historyContainer.style.display === 'none' ? 'block' : 'none';
+    });
+    
+    toggleDebugBtn.addEventListener('click', () => {
+      debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+    });
+    
+    /**
+     * Handles the user input, processes it, and adds bot response
+     */
+    function handleUserInput() {
+      const text = userInput.value.trim();
+      if (text === '') return;
+      
+      // Add user message to chat
+      addMessage(text, 'user');
+      userInput.value = '';
+      
+      // Show thinking indicator
+      const thinkingId = addMessage("Thinking...", 'bot thinking');
+      
+      // Process after a slight delay to show "thinking" effect
+      setTimeout(() => {
+        const response = processUserInput(text);
+        
+        // Remove thinking indicator and add actual response
+        document.getElementById(thinkingId).remove();
+        addMessage(response, 'bot');
+        
+        // Store in history
+        chatHistory.push({ question: text, answer: response });
+        updateHistoryDisplay();
+      }, 500);
+    }
+    
+    /**
+     * Adds a message to the chat box
+     * @param {string} text - The message text
+     * @param {string} sender - Either 'user' or 'bot'
+     * @returns {string} The ID of the created message element
+     */
+    function addMessage(text, sender) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${sender}`;
+      messageDiv.innerText = text;
+      
+      // Create a unique ID for the message
+      const messageId = `msg-${Date.now()}`;
+      messageDiv.id = messageId;
+      
+      chatBox.appendChild(messageDiv);
+      
+      // Scroll to bottom of chat
+      chatBox.scrollTop = chatBox.scrollHeight;
+      
+      return messageId;
+    }
+    
+    /**
+     * Processes the user input and returns appropriate response
+     * @param {string} input - The user input text
+     * @returns {string} The bot's response
+     */
+    function processUserInput(input) {
+      // Clear previous debug info
+      matchDetails.innerHTML = '';
+      
+      // Find best matching question using cosine similarity
+      const matchInfo = findBestMatch(input, qaPairs);
+      
+      // Display match details in debug panel
+      displayMatchDetails(input, matchInfo);
+      
+      if (matchInfo.bestMatch) {
+        // If the match has a dynamic answer, compute it
+        if (matchInfo.bestMatch.dynamic && matchInfo.bestMatch.getAnswer) {
+          return matchInfo.bestMatch.getAnswer();
+        }
+        return matchInfo.bestMatch.answer;
+      } else {
+        return "I'm not sure how to answer that question. Could you please try rephrasing it?";
+      }
+    }
+    
+    /**
+     * Updates the history display with the current chat history
+     */
+    function updateHistoryDisplay() {
+      historyContainer.innerHTML = '';
+      
+      // Show the last 100 interactions, most recent first
+      const recentHistory = chatHistory.slice(-100).reverse();
+      
+      recentHistory.forEach((item, index) => {
+        const historyItem = document.createElement('div');
+        historyItem.className = 'history-item';
+        historyItem.innerHTML = `<strong>Q:</strong> ${item.question}<br><strong>A:</strong> ${item.answer}`;
+        historyContainer.appendChild(historyItem);
+      });
+    }
+    
+    /**
+     * Displays match details in the debug panel
+     * @param {string} input - The user input
+     * @param {object} matchInfo - Information about the best match
+     */
+    function displayMatchDetails(input, matchInfo) {
+      // Create header
+      const header = document.createElement('div');
+      header.innerHTML = `<strong>User Input:</strong> "${input}"`;
+      matchDetails.appendChild(header);
+      
+      // Show best match
+      if (matchInfo.bestMatch) {
+        const bestMatchElem = document.createElement('div');
+        bestMatchElem.className = 'match-info selected';
+        bestMatchElem.innerHTML = `
+          <strong>Best Match (${(matchInfo.bestMatchScore * 100).toFixed(2)}%):</strong> 
+          "${matchInfo.bestMatch.question}"<br>
+          <strong>Answer:</strong> ${matchInfo.bestMatch.answer}<br>
+          <strong>Threshold:</strong> ${matchInfo.bestMatch.threshold || 0.5}
+        `;
+        matchDetails.appendChild(bestMatchElem);
+      } else {
+        const noMatchElem = document.createElement('div');
+        noMatchElem.innerHTML = "<strong>No matches found above threshold</strong>";
+        matchDetails.appendChild(noMatchElem);
+      }
+      
+      // Show top 5 matches
+      const topMatches = document.createElement('div');
+      topMatches.innerHTML = "<br><strong>Top 5 Matches:</strong>";
+      matchDetails.appendChild(topMatches);
+      
+      matchInfo.allMatches.slice(0, 5).forEach(match => {
+        const matchElem = document.createElement('div');
+        matchElem.className = 'match-info';
+        matchElem.innerHTML = `
+          <strong>(${(match.score * 100).toFixed(2)}%):</strong> 
+          "${match.question}"<br>
+          <strong>Answer:</strong> ${match.answer}<br>
+          <strong>Threshold:</strong> ${match.threshold || 0.5}
+        `;
+        matchDetails.appendChild(matchElem);
+      });
+    }
+    
+    /**
+     * Finds the best match for the user input among the qaPairs
+     * @param {string} input - The user input
+     * @param {Array} pairs - Array of question-answer pairs
+     * @returns {object} Object containing best match and all matches
+     */
+    function findBestMatch(input, pairs) {
+      const matches = pairs.map(pair => {
+        // Calculate similarity score between input and question
+        const score = calculateSimilarity(input.toLowerCase(), pair.question.toLowerCase());
+        return {
+          score,
+          question: pair.question,
+          answer: pair.dynamic && pair.getAnswer ? pair.getAnswer() : pair.answer,
+          threshold: pair.threshold || 0.5,
+          dynamic: pair.dynamic
+        };
+      });
+      
+      // Sort matches by score, highest first
+      const sortedMatches = matches.sort((a, b) => b.score - a.score);
+      
+      // Find the best match that exceeds its threshold
+      const bestMatch = sortedMatches.find(match => match.score >= match.threshold);
+      
+      return {
+        bestMatch: bestMatch || null,
+        bestMatchScore: bestMatch ? bestMatch.score : 0,
+        allMatches: sortedMatches
+      };
+    }
+    
+    /**
+     * Calculates similarity between two strings using a simple approach
+     * @param {string} str1 - First string
+     * @param {string} str2 - Second string
+     * @returns {number} Similarity score between 0 and 1
+     */
+    function calculateSimilarity(str1, str2) {
+      // Tokenize strings into words
+      const words1 = str1.toLowerCase().split(/\W+/).filter(word => word.length > 0);
+      const words2 = str2.toLowerCase().split(/\W+/).filter(word => word.length > 0);
+      
+      // Create sets of unique words
+      const set1 = new Set(words1);
+      const set2 = new Set(words2);
+      
+      // Count words common to both strings
+      let intersection = 0;
+      for (const word of set1) {
+        if (set2.has(word)) {
+          intersection++;
+        }
+      }
+      
+      // Calculate Jaccard similarity
+      const union = set1.size + set2.size - intersection;
+      if (union === 0) return 0;
+      
+      // Basic Jaccard similarity
+      let similarity = intersection / union;
+      
+      // Bonus for key phrases
+      // Look for phrases in str2 that appear in str1
+      const keyPhrases = extractKeyPhrases(str2);
+      let phraseBonus = 0;
+      
+      keyPhrases.forEach(phrase => {
+        if (str1.includes(phrase)) {
+          // Add bonus proportional to phrase length
+          phraseBonus += phrase.length / 100;
+        }
+      });
+      
+      // Apply length penalty if questions are very different in length
+      const lengthRatio = Math.min(str1.length, str2.length) / Math.max(str1.length, str2.length);
+      const lengthPenalty = lengthRatio * 0.2; // max 20% penalty for length difference
+      
+      // Adjust similarity score with phrase bonus and length penalty
+      similarity = similarity * (1 - lengthPenalty) + phraseBonus;
+      
+      // Ensure score is in 0-1 range
+      return Math.min(Math.max(similarity, 0), 1);
+    }
+    
+    /**
+     * Extracts key phrases from a string
+     * @param {string} text - The input text
+     * @returns {Array} Array of key phrases
+     */
+    function extractKeyPhrases(text) {
+      const phrases = [];
+      
+      // Split text into sentences
+      const sentences = text.split(/[.!?]/);
+      
+      sentences.forEach(sentence => {
+        // Get noun phrases (simple approach)
+        const words = sentence.trim().split(/\s+/);
+        
+        // Extract 2-3 word phrases
+        for (let i = 0; i < words.length - 1; i++) {
+          phrases.push(words[i] + ' ' + words[i + 1]);
+          
+          if (i < words.length - 2) {
+            phrases.push(words[i] + ' ' + words[i + 1] + ' ' + words[i + 2]);
+          }
+        }
+      });
+      
+      return phrases;
+    }
+  </script>
+</body>
+</html>
